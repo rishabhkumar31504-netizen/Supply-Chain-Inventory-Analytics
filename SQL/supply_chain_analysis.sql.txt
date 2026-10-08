@@ -1,0 +1,363 @@
+-- ============================================================
+-- SUPPLY CHAIN & INVENTORY ANALYTICS
+-- SQL Analysis
+-- Database: supply_chain_analytics
+-- Table: supply_chain
+-- Records: 91,250
+-- ============================================================
+
+
+-- ============================================================
+-- 1. DATABASE & TABLE
+-- ============================================================
+
+USE supply_chain_analytics;
+
+-- Check total records
+SELECT COUNT(*) AS total_records
+FROM supply_chain;
+
+
+-- ============================================================
+-- 2. OVERALL INVENTORY KPIs
+-- ============================================================
+
+SELECT
+    SUM(Inventory_Value) AS total_inventory_value,
+    SUM(Units_Sold) AS total_units_sold,
+    AVG(Inventory_Level) AS average_inventory_level,
+    AVG(Days_of_Inventory) AS average_days_of_inventory
+FROM supply_chain;
+
+
+-- ============================================================
+-- 3. STOCKOUT ANALYSIS
+-- ============================================================
+
+SELECT
+    Stockout_Flag,
+    COUNT(*) AS records,
+    ROUND(
+        COUNT(*) * 100.0 / (SELECT COUNT(*) FROM supply_chain),
+        2
+    ) AS percentage
+FROM supply_chain
+GROUP BY Stockout_Flag
+ORDER BY Stockout_Flag;
+
+
+-- ============================================================
+-- 4. REORDER RISK ANALYSIS
+-- ============================================================
+
+SELECT
+    Reorder_Risk,
+    COUNT(*) AS records,
+    ROUND(
+        COUNT(*) * 100.0 / (SELECT COUNT(*) FROM supply_chain),
+        2
+    ) AS percentage
+FROM supply_chain
+GROUP BY Reorder_Risk
+ORDER BY records DESC;
+
+
+-- ============================================================
+-- 5. INVENTORY STATUS ANALYSIS
+-- ============================================================
+
+SELECT
+    Inventory_Status,
+    COUNT(*) AS records,
+    ROUND(SUM(Inventory_Value), 2) AS inventory_value,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory
+FROM supply_chain
+GROUP BY Inventory_Status
+ORDER BY records DESC;
+
+
+-- ============================================================
+-- 6. TOP 10 SKUs BY INVENTORY VALUE
+-- ============================================================
+
+SELECT
+    SKU_ID,
+    ROUND(SUM(Inventory_Value), 2) AS inventory_value,
+    SUM(Inventory_Level) AS total_inventory_units,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory
+FROM supply_chain
+GROUP BY SKU_ID
+ORDER BY inventory_value DESC
+LIMIT 10;
+
+
+-- ============================================================
+-- 7. TOP 10 SKUs BY DAYS OF INVENTORY
+-- ============================================================
+
+SELECT
+    SKU_ID,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory,
+    ROUND(SUM(Inventory_Value), 2) AS inventory_value
+FROM supply_chain
+GROUP BY SKU_ID
+ORDER BY avg_days_of_inventory DESC
+LIMIT 10;
+
+
+-- ============================================================
+-- 8. INVENTORY STATUS BY SKU
+-- ============================================================
+
+SELECT
+    SKU_ID,
+    Inventory_Status,
+    COUNT(*) AS records
+FROM supply_chain
+GROUP BY
+    SKU_ID,
+    Inventory_Status
+ORDER BY
+    SKU_ID,
+    records DESC;
+
+
+-- ============================================================
+-- 9. WAREHOUSE PERFORMANCE
+-- ============================================================
+
+SELECT
+    Warehouse_ID,
+    COUNT(*) AS records,
+    ROUND(SUM(Inventory_Value), 2) AS total_inventory_value,
+    ROUND(AVG(Inventory_Level), 2) AS avg_inventory_level,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory,
+    SUM(
+        CASE
+            WHEN Inventory_Status = 'Overstock'
+            THEN 1
+            ELSE 0
+        END
+    ) AS overstock_records,
+    SUM(
+        CASE
+            WHEN Reorder_Risk = 'Reorder Required'
+            THEN 1
+            ELSE 0
+        END
+    ) AS reorder_required
+FROM supply_chain
+GROUP BY Warehouse_ID
+ORDER BY total_inventory_value DESC;
+
+
+-- ============================================================
+-- 10. REGIONAL PERFORMANCE
+-- ============================================================
+
+SELECT
+    Region,
+    COUNT(*) AS records,
+    ROUND(SUM(Inventory_Value), 2) AS total_inventory_value,
+    ROUND(AVG(Inventory_Level), 2) AS avg_inventory_level,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory,
+    SUM(
+        CASE
+            WHEN Inventory_Status = 'Overstock'
+            THEN 1
+            ELSE 0
+        END
+    ) AS overstock_records,
+    SUM(
+        CASE
+            WHEN Reorder_Risk = 'Reorder Required'
+            THEN 1
+            ELSE 0
+        END
+    ) AS reorder_required
+FROM supply_chain
+GROUP BY Region
+ORDER BY total_inventory_value DESC;
+
+
+-- ============================================================
+-- 11. SUPPLIER PERFORMANCE
+-- ============================================================
+
+SELECT
+    Supplier_ID,
+    COUNT(*) AS records,
+    ROUND(AVG(Supplier_Lead_Time_Days), 2) AS avg_lead_time,
+    ROUND(SUM(Inventory_Value), 2) AS total_inventory_value,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory,
+    SUM(
+        CASE
+            WHEN Reorder_Risk = 'Reorder Required'
+            THEN 1
+            ELSE 0
+        END
+    ) AS reorder_required
+FROM supply_chain
+GROUP BY Supplier_ID
+ORDER BY avg_lead_time DESC;
+
+
+-- ============================================================
+-- 12. TOP 10 SKUs REQUIRING REORDER
+-- ============================================================
+
+SELECT
+    SKU_ID,
+    COUNT(*) AS reorder_records
+FROM supply_chain
+WHERE Reorder_Risk = 'Reorder Required'
+GROUP BY SKU_ID
+ORDER BY reorder_records DESC
+LIMIT 10;
+
+
+-- ============================================================
+-- 13. HIGH-RISK INVENTORY
+-- ============================================================
+
+SELECT
+    SKU_ID,
+    COUNT(*) AS high_risk_records,
+    ROUND(SUM(Inventory_Value), 2) AS inventory_value,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory
+FROM supply_chain
+WHERE Inventory_Status = 'High Risk'
+GROUP BY SKU_ID
+ORDER BY high_risk_records DESC;
+
+
+-- ============================================================
+-- 14. ABC CLASSIFICATION
+-- ============================================================
+-- A = approximately first 70% of cumulative inventory value
+-- B = approximately next 20%
+-- C = remaining inventory value
+--
+-- Classification is performed at SKU level.
+
+WITH sku_value AS (
+    SELECT
+        SKU_ID,
+        SUM(Inventory_Value) AS inventory_value
+    FROM supply_chain
+    GROUP BY SKU_ID
+),
+
+ranked_skus AS (
+    SELECT
+        SKU_ID,
+        inventory_value,
+        SUM(inventory_value) OVER (
+            ORDER BY inventory_value DESC
+        ) AS cumulative_value,
+        SUM(inventory_value) OVER () AS total_value
+    FROM sku_value
+)
+
+SELECT
+    SKU_ID,
+    ROUND(inventory_value, 2) AS inventory_value,
+    ROUND(
+        cumulative_value / total_value * 100,
+        2
+    ) AS cumulative_percentage,
+
+    CASE
+        WHEN cumulative_value / total_value <= 0.70
+            THEN 'A'
+        WHEN cumulative_value / total_value <= 0.90
+            THEN 'B'
+        ELSE 'C'
+    END AS ABC_Class
+
+FROM ranked_skus
+ORDER BY inventory_value DESC;
+
+
+-- ============================================================
+-- 15. ABC CLASS SUMMARY
+-- ============================================================
+
+WITH sku_value AS (
+    SELECT
+        SKU_ID,
+        SUM(Inventory_Value) AS inventory_value
+    FROM supply_chain
+    GROUP BY SKU_ID
+),
+
+ranked_skus AS (
+    SELECT
+        SKU_ID,
+        inventory_value,
+        SUM(inventory_value) OVER (
+            ORDER BY inventory_value DESC
+        ) AS cumulative_value,
+        SUM(inventory_value) OVER () AS total_value
+    FROM sku_value
+),
+
+classified_skus AS (
+    SELECT
+        SKU_ID,
+        inventory_value,
+        CASE
+            WHEN cumulative_value / total_value <= 0.70
+                THEN 'A'
+            WHEN cumulative_value / total_value <= 0.90
+                THEN 'B'
+            ELSE 'C'
+        END AS ABC_Class
+    FROM ranked_skus
+)
+
+SELECT
+    ABC_Class,
+    COUNT(*) AS sku_count,
+    ROUND(SUM(inventory_value), 2) AS total_inventory_value,
+    ROUND(
+        SUM(inventory_value) /
+        (SELECT SUM(inventory_value) FROM classified_skus) * 100,
+        2
+    ) AS percentage_of_inventory_value
+FROM classified_skus
+GROUP BY ABC_Class
+ORDER BY ABC_Class;
+
+
+-- ============================================================
+-- 16. INVENTORY EFFICIENCY: HIGH DAYS + HIGH VALUE SKUs
+-- ============================================================
+
+SELECT
+    SKU_ID,
+    ROUND(SUM(Inventory_Value), 2) AS inventory_value,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory
+FROM supply_chain
+GROUP BY SKU_ID
+HAVING AVG(Days_of_Inventory) > 60
+ORDER BY avg_days_of_inventory DESC;
+
+
+-- ============================================================
+-- 17. SUPPLIER INVENTORY EFFICIENCY
+-- ============================================================
+
+SELECT
+    Supplier_ID,
+    ROUND(AVG(Supplier_Lead_Time_Days), 2) AS avg_lead_time,
+    ROUND(AVG(Days_of_Inventory), 2) AS avg_days_of_inventory,
+    ROUND(SUM(Inventory_Value), 2) AS inventory_value
+FROM supply_chain
+GROUP BY Supplier_ID
+ORDER BY avg_days_of_inventory DESC;
+
+
+-- ============================================================
+-- END OF ANALYSIS
+-- ============================================================
